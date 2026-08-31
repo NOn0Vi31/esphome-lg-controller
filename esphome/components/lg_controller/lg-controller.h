@@ -182,10 +182,14 @@ namespace esphome::lg_controller {
 
         enum class PendingSendKind : uint8_t { None, Status, TypeA, TypeB };
         PendingSendKind pending_send_ = PendingSendKind::None;
+        uint32_t pending_send_millis_ = 0;
 
         bool pending_status_change_ = false;
+        uint32_t pending_status_change_millis_ = 0;
         bool pending_type_a_settings_change_ = false;
+        uint32_t pending_type_a_settings_change_millis_ = 0;
         bool pending_type_b_settings_change_ = false;
+        uint32_t pending_type_b_settings_change_millis_ = 0;
 
         bool is_initializing_ = true;
         bool startup_flush_done_ = false;
@@ -1315,6 +1319,51 @@ namespace esphome::lg_controller {
                     }
                 }
 
+
+                // Manage pending sends (required in case of bus errors or unavailability).
+                // pending_status_change_ and pending_type_a_settings_change_ are reset if they are pending for more than 5 seconds.
+                if (pending_status_change_millis_ == 0 && pending_status_change_ == true) {
+                    pending_status_change_millis_ = millis();
+                } else if (pending_status_change_millis_ != 0 && millis() - pending_status_change_millis_ > 5000) {
+                    ESP_LOGE(TAG, "pending status change for more than 5 seconds will be dropped");
+                    pending_status_change_millis_ = 0;
+                    pending_status_change_ = false;
+                    pending_type_a_settings_change_ = false; // Reset pending type A settings change to avoid sending it without a status message.
+                } else if (pending_status_change_ == false) {
+                    pending_status_change_millis_ = 0;
+                }
+                // pending_type_a_settings_change_ reset if it is pending for more than 5 seconds
+                if (pending_type_a_settings_change_millis_ == 0 && pending_type_a_settings_change_ == true) {
+                    pending_type_a_settings_change_millis_ = millis();
+                } else if (pending_type_a_settings_change_millis_ != 0 && millis() - pending_type_a_settings_change_millis_ > 5000) {
+                    ESP_LOGE(TAG, "pending type A settings change for more than 5 seconds will be dropped");
+                    pending_type_a_settings_change_millis_ = 0;
+                    pending_type_a_settings_change_ = false;
+                } else if (pending_type_a_settings_change_ == false) {
+                    pending_type_a_settings_change_millis_ = 0;
+                }
+                // pending_type_b_settings_change_ reset if it is pending for more than 20 seconds
+                if (pending_type_b_settings_change_millis_ == 0 && pending_type_b_settings_change_ == true) {
+                    pending_type_b_settings_change_millis_ = millis();
+                } else if (pending_type_b_settings_change_millis_ != 0 && millis() - pending_type_b_settings_change_millis_ > 20000) {
+                    ESP_LOGE(TAG, "pending type B settings change for more than 20 seconds will be dropped");
+                    pending_type_b_settings_change_millis_ = 0;
+                    pending_type_b_settings_change_ = false;
+                } else if (pending_type_b_settings_change_ == false) {
+                    pending_type_b_settings_change_millis_ = 0;
+                }
+                // pending_send_ reset if it is pending for more than 5 seconds
+                if (pending_send_millis_ == 0 && pending_send_ != PendingSendKind::None) {
+                    pending_send_millis_ = millis();
+                } else if (pending_send_millis_ != 0 && millis() - pending_send_millis_ > 5000) {
+                    ESP_LOGE(TAG, "Request send validation failed (Timeout expired). Request will be dropped");
+                    pending_send_millis_ = 0;
+                    pending_send_ = PendingSendKind::None;
+                } else if (pending_send_ == PendingSendKind::None) {
+                    pending_send_millis_ = 0;
+                }
+
+                // Manage sending verification
                 // If we did not receive the message we sent last time, try to send it again next time.
                 // Ignore this when we're initializing because the unit then immediately responds by
                 // sending a lot of messages and this introduces a delay.
@@ -1322,6 +1371,7 @@ namespace esphome::lg_controller {
                     ESP_LOGE(TAG, "did not receive message we just sent");
                     switch (pending_send_) {
                         case PendingSendKind::Status:
+                            pending_type_a_settings_change_ = false; // Reset pending type A settings change to avoid sending it before the status message.
                             pending_status_change_ = true;
                             break;
                         case PendingSendKind::TypeA:
