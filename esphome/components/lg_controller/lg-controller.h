@@ -462,9 +462,9 @@ namespace esphome::lg_controller {
                 }
                 pending_status_change_ = true;
 
-                // Call `update` every 6 seconds, but first wait 10 seconds.
+                // Call `update` every 2 seconds, but first wait 10 seconds.
                 set_timeout("initial_send", 10000, [this]() {
-                    set_interval("update", 6000, [this]() { update(); });
+                    set_interval("update", 2000, [this]() { update(); });
                 });
             }
 
